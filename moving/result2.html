@@ -1,0 +1,1792 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>수원 74A 3D 아파트 인테리어 & 가구 배치 시뮬레이터</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+  :root {
+    --bg: #dde5ed;
+    --panel: rgba(255, 255, 255, 0.95);
+    --dark: rgba(24, 29, 38, 0.92);
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --danger: #dc2626;
+    --success: #059669;
+    --text: #1e293b;
+    --muted: #64748b;
+    --border: #e2e8f0;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+    background: var(--bg);
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+  }
+  #canvas-wrap { position: fixed; inset: 0; }
+  #webgl-canvas, #overlay-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #webgl-canvas { touch-action: none; }
+  #overlay-canvas { pointer-events: none; }
+
+  /* 상단 내비게이션 바 */
+  .top-bar {
+    position: fixed; top: calc(10px + env(safe-area-inset-top, 0px)); left: 10px; right: 10px; z-index: 30;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px; pointer-events: none;
+  }
+  .top-bar > * { pointer-events: auto; }
+  .brand-pill {
+    display: flex; align-items: center; gap: 8px; background: var(--panel);
+    padding: 6px 12px 6px 7px; border-radius: 14px;
+    box-shadow: 0 4px 16px rgba(15,23,42,0.12); border: 1px solid rgba(255,255,255,0.8);
+  }
+  .brand-badge {
+    background: #0f172a; color: #fff; font-size: 11px; font-weight: 800;
+    padding: 4px 7px; border-radius: 8px;
+  }
+  .brand-title { font-size: 13px; font-weight: 800; color: var(--text); white-space: nowrap; }
+
+  .mode-group {
+    display: flex; background: var(--panel); padding: 4px; border-radius: 14px;
+    box-shadow: 0 4px 16px rgba(15,23,42,0.14); gap: 4px;
+  }
+  .mode-btn {
+    border: none; background: transparent; color: var(--muted);
+    padding: 8px 13px; border-radius: 10px; font-size: 13px; font-weight: 700;
+    cursor: pointer; transition: 0.15s; white-space: nowrap;
+  }
+  .mode-btn.active {
+    background: var(--primary); color: #fff; box-shadow: 0 2px 8px rgba(37,99,235,0.35);
+  }
+
+  .top-actions { display: flex; gap: 6px; align-items: center; }
+  .action-btn {
+    border: 1px solid rgba(0,0,0,0.06); background: var(--panel); color: var(--text);
+    padding: 9px 13px; border-radius: 12px; font-size: 13px; font-weight: 700;
+    cursor: pointer; box-shadow: 0 4px 16px rgba(15,23,42,0.13); white-space: nowrap;
+  }
+  .action-btn.active { background: var(--success); color: #fff; border-color: transparent; }
+
+  /* 안내 배너 및 충돌 경고 배너 */
+  #hint-pill {
+    position: fixed; top: calc(58px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%);
+    z-index: 22; background: rgba(15,23,42,0.78); color: #f8fafc; padding: 6px 14px;
+    border-radius: 20px; font-size: 12px; font-weight: 600; pointer-events: none; white-space: nowrap;
+  }
+  #collision-banner {
+    position: fixed; top: calc(92px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%);
+    z-index: 55; background: rgba(220, 38, 38, 0.96); color: #fff; padding: 10px 18px;
+    border-radius: 12px; font-size: 13px; font-weight: 800; display: none;
+    box-shadow: 0 8px 24px rgba(220,38,38,0.4); border: 1.5px solid #fecaca;
+    max-width: 92vw; text-align: center;
+  }
+  #collision-banner.visible { display: block; }
+
+  /* 우측 플로팅 줌/문/라벨 컨트롤 */
+  .right-controls {
+    position: fixed; right: 12px; top: calc(64px + env(safe-area-inset-top, 0px)); z-index: 25;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .fab-btn {
+    width: 44px; height: 44px; border-radius: 12px; border: 1px solid rgba(0,0,0,0.08);
+    background: var(--panel); color: var(--text); font-size: 18px; font-weight: 800;
+    cursor: pointer; box-shadow: 0 3px 12px rgba(15,23,42,0.12);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .fab-btn.small-text { font-size: 11px; width: 54px; }
+  .fab-btn.active { background: var(--primary); color: #fff; }
+
+  /* 1인칭 미니맵 */
+  #minimap-box {
+    position: fixed; left: 12px; top: calc(64px + env(safe-area-inset-top, 0px)); z-index: 25;
+    background: var(--panel); border-radius: 14px; padding: 8px;
+    box-shadow: 0 6px 22px rgba(15,23,42,0.16); border: 1px solid rgba(0,0,0,0.08);
+    display: none; flex-direction: column; gap: 4px;
+  }
+  #minimap-box.visible { display: flex; }
+  .minimap-header {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 11.5px; font-weight: 800; color: var(--text);
+  }
+  .minimap-header button {
+    border: none; background: #e2e8f0; border-radius: 6px; font-size: 10px;
+    padding: 2px 7px; font-weight: 700; cursor: pointer;
+  }
+  #minimap-canvas {
+    width: 210px; height: 136px; border-radius: 8px; background: #f8fafc;
+    border: 1px solid #cbd5e1; cursor: crosshair; display: block;
+  }
+  #minimap-box.collapsed #minimap-canvas,
+  #minimap-box.collapsed .minimap-tip { display: none; }
+  .minimap-tip { font-size: 10px; color: var(--muted); text-align: center; }
+
+  /* 1인칭 방 빠른 이동 바 */
+  #room-bar {
+    position: fixed; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); left: 50%;
+    transform: translateX(-50%); z-index: 25; display: none; gap: 6px;
+    max-width: calc(100vw - 24px); overflow-x: auto; padding: 6px 8px;
+    background: var(--panel); border-radius: 16px; box-shadow: 0 6px 20px rgba(15,23,42,0.16);
+    scrollbar-width: none;
+  }
+  #room-bar::-webkit-scrollbar { display: none; }
+  #room-bar.visible { display: flex; }
+  .room-chip {
+    border: 1px solid var(--border); background: #fff; color: var(--text);
+    padding: 7px 11px; border-radius: 10px; font-size: 12px; font-weight: 700;
+    cursor: pointer; white-space: nowrap; flex-shrink: 0;
+  }
+  .room-chip.active-room { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+  /* 모바일/1인칭 가상 조이스틱 */
+  #joystick-zone {
+    position: fixed; left: 16px; bottom: calc(70px + env(safe-area-inset-bottom, 0px)); z-index: 26;
+    width: 104px; height: 104px; border-radius: 50%;
+    background: rgba(15, 23, 42, 0.32); border: 2px solid rgba(255,255,255,0.82);
+    display: none; align-items: center; justify-content: center; touch-action: none;
+  }
+  #joystick-zone.visible { display: flex; }
+  #joystick-knob {
+    width: 44px; height: 44px; border-radius: 50%;
+    background: rgba(255,255,255,0.95); box-shadow: 0 3px 10px rgba(0,0,0,0.3); pointer-events: none;
+  }
+  .joy-label { position: absolute; font-size: 10px; color: #fff; font-weight: 800; pointer-events: none; }
+
+  /* 가구 배치 패널 */
+  #furniture-panel {
+    position: fixed; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); z-index: 35;
+    width: 348px; max-width: calc(100vw - 24px); max-height: calc(100dvh - 76px);
+    background: var(--panel); border-radius: 18px;
+    box-shadow: 0 12px 36px rgba(15,23,42,0.24); border: 1px solid rgba(0,0,0,0.08);
+    display: none; flex-direction: column; overflow: hidden;
+  }
+  #furniture-panel.open { display: flex; }
+  .panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 11px 14px; border-bottom: 1px solid var(--border); background: #f8fafc;
+  }
+  .panel-header h3 { margin: 0; font-size: 14px; color: var(--text); }
+  .panel-tabs { display: flex; border-bottom: 1px solid var(--border); background: #f1f5f9; }
+  .panel-tab {
+    flex: 1; border: none; background: transparent; padding: 9px 6px;
+    font-size: 12px; font-weight: 700; color: var(--muted); cursor: pointer;
+    border-bottom: 2px solid transparent;
+  }
+  .panel-tab.active { color: var(--primary); border-bottom-color: var(--primary); background: #fff; }
+  .panel-body { padding: 12px; overflow-y: auto; flex: 1; -webkit-overflow-scrolling: touch; }
+
+  .catalog-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; }
+  .cat-item {
+    border: 1.5px solid var(--border); background: #fff; border-radius: 10px;
+    padding: 7px 4px; text-align: center; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+  }
+  .cat-item.selected { border-color: var(--primary); background: #eff6ff; }
+  .cat-icon { font-size: 19px; line-height: 1.1; }
+  .cat-name { font-size: 11px; font-weight: 700; color: var(--text); }
+
+  .form-card {
+    background: #f8fafc; border: 1px solid var(--border); border-radius: 12px;
+    padding: 10px; display: flex; flex-direction: column; gap: 8px;
+  }
+  .form-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .form-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .field { display: flex; flex-direction: column; gap: 3px; }
+  .field label { font-size: 11px; font-weight: 700; color: var(--muted); }
+  .field input, .field select {
+    width: 100%; padding: 7px 8px; border: 1px solid #cbd5e1; border-radius: 8px;
+    font-size: 13px; font-weight: 700; color: var(--text); background: #fff;
+    user-select: text; -webkit-user-select: text;
+  }
+  .btn-primary {
+    width: 100%; border: none; background: var(--primary); color: #fff;
+    padding: 11px; border-radius: 10px; font-size: 13px; font-weight: 800; cursor: pointer;
+  }
+  .btn-row { display: flex; gap: 6px; }
+  .btn-sec {
+    flex: 1; border: 1px solid #cbd5e1; background: #fff; color: var(--text);
+    padding: 8px 6px; border-radius: 9px; font-size: 12px; font-weight: 700; cursor: pointer;
+  }
+  .btn-danger {
+    width: 100%; border: none; background: var(--danger); color: #fff;
+    padding: 9px; border-radius: 9px; font-size: 12px; font-weight: 700; cursor: pointer;
+  }
+
+  .placed-list { display: flex; flex-direction: column; gap: 6px; }
+  .placed-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 6px;
+    background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px;
+  }
+  .placed-row.selected { border-color: var(--primary); background: #eff6ff; }
+  .placed-info { flex: 1; cursor: pointer; }
+  .placed-title { font-size: 12.5px; font-weight: 700; color: var(--text); }
+  .placed-sub { font-size: 11px; color: var(--muted); }
+
+  /* 선택된 가구 하단 조작 바 */
+  #selected-bar {
+    position: fixed; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%); z-index: 34;
+    background: var(--dark); color: #fff; border-radius: 16px; padding: 10px 12px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.38); display: none; flex-direction: column; gap: 8px;
+    width: min(460px, calc(100vw - 20px));
+  }
+  #selected-bar.visible { display: flex; }
+  .sel-top { display: flex; align-items: center; justify-content: space-between; }
+  .sel-title { font-size: 13px; font-weight: 800; }
+  .sel-dim { font-size: 11px; color: #93c5fd; margin-left: 6px; }
+  .sel-controls { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+  .sel-btn {
+    border: none; background: rgba(255,255,255,0.15); color: #fff;
+    padding: 7px 10px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer;
+  }
+  .sel-btn.del { background: var(--danger); }
+  .sel-edit-row {
+    display: none; grid-template-columns: repeat(5, 1fr); gap: 5px;
+    padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.16);
+  }
+  .sel-edit-row.open { display: grid; }
+  .sel-edit-row label { font-size: 10px; color: #cbd5e1; display: block; margin-bottom: 2px; }
+  .sel-edit-row input {
+    width: 100%; padding: 5px; border-radius: 6px; border: 1px solid #475569;
+    background: #0f172a; color: #fff; font-size: 12px; font-weight: 700;
+    user-select: text; -webkit-user-select: text;
+  }
+
+  @media (max-width: 768px) {
+    .brand-pill, #hint-pill { display: none; }
+    .mode-btn { padding: 7px 9px; font-size: 12px; }
+    .action-btn { padding: 7px 10px; font-size: 12px; }
+    #minimap-canvas { width: 156px; height: 102px; }
+    #furniture-panel { left: 10px; right: 10px; width: auto; max-height: 58dvh; }
+  }
+</style>
+</head>
+<body>
+
+<div id="canvas-wrap">
+  <canvas id="webgl-canvas"></canvas>
+  <canvas id="overlay-canvas"></canvas>
+</div>
+
+<!-- 상단 바 -->
+<div class="top-bar">
+  <div class="brand-pill">
+    <span class="brand-badge">74A</span>
+    <span class="brand-title">수원 3D 홈플래너</span>
+  </div>
+  <div class="mode-group">
+    <button type="button" class="mode-btn" id="btn-mode-fp">🚶 1인칭 보기</button>
+    <button type="button" class="mode-btn active" id="btn-mode-3d">🧊 3D 조감도</button>
+    <button type="button" class="mode-btn" id="btn-mode-2d">📐 2D 조감도</button>
+  </div>
+  <div class="top-actions">
+    <button type="button" class="action-btn" id="btn-stack-laundry">🧺 세탁+건조 적층</button>
+    <button type="button" class="action-btn" id="btn-place-mode">🛋️ 가구 배치</button>
+  </div>
+</div>
+
+<div id="hint-pill">드래그: 회전 · 우클릭/두손가락: 이동 · 휠/핀치: 줌 인·아웃</div>
+<div id="collision-banner">⚠️ 배치 불가</div>
+
+<!-- 우측 컨트롤 -->
+<div class="right-controls">
+  <button type="button" class="fab-btn" id="btn-zoom-in" title="줌 인">+</button>
+  <button type="button" class="fab-btn" id="btn-zoom-out" title="줌 아웃">−</button>
+  <button type="button" class="fab-btn small-text" id="btn-reset-view">시점리셋</button>
+  <button type="button" class="fab-btn small-text active" id="btn-toggle-labels">라벨</button>
+  <button type="button" class="fab-btn small-text" id="btn-toggle-doors">문열림</button>
+</div>
+
+<!-- 1인칭 미니맵 -->
+<div id="minimap-box">
+  <div class="minimap-header">
+    <span id="minimap-room-title">거실</span>
+    <button type="button" id="btn-minimap-collapse">접기</button>
+  </div>
+  <canvas id="minimap-canvas" width="420" height="272"></canvas>
+  <div class="minimap-tip">도면 터치 시 해당 위치로 바로 이동</div>
+</div>
+
+<!-- 1인칭 공간 빠른 이동 -->
+<div id="room-bar">
+  <button type="button" class="room-chip" data-room="living">거실</button>
+  <button type="button" class="room-chip" data-room="kitchen">주방</button>
+  <button type="button" class="room-chip" data-room="master">안방</button>
+  <button type="button" class="room-chip" data-room="dress">드레스룸</button>
+  <button type="button" class="room-chip" data-room="bath2">부부욕실</button>
+  <button type="button" class="room-chip" data-room="balcony">발코니</button>
+  <button type="button" class="room-chip" data-room="bed2">침실2</button>
+  <button type="button" class="room-chip" data-room="bed3">침실3</button>
+  <button type="button" class="room-chip" data-room="bath1">공용욕실</button>
+  <button type="button" class="room-chip" data-room="pantry">팬트리</button>
+  <button type="button" class="room-chip" data-room="utility">다용도실</button>
+  <button type="button" class="room-chip" data-room="entrance">현관</button>
+</div>
+
+<!-- 1인칭 이동 조이스틱 -->
+<div id="joystick-zone">
+  <span class="joy-label" style="top:5px;">앞</span>
+  <span class="joy-label" style="bottom:5px;">뒤</span>
+  <span class="joy-label" style="left:7px;">좌</span>
+  <span class="joy-label" style="right:7px;">우</span>
+  <div id="joystick-knob"></div>
+</div>
+
+<!-- 가구 배치 패널 -->
+<div id="furniture-panel">
+  <div class="panel-header">
+    <h3>🛋️ 가구 배치 모드 <span style="font-size:11px;font-weight:500;color:#64748b;">(터치/드래그 이동)</span></h3>
+    <button type="button" id="btn-close-panel" style="border:none;background:#e2e8f0;border-radius:8px;padding:4px 9px;font-weight:700;cursor:pointer;">닫기</button>
+  </div>
+  <div class="panel-tabs">
+    <button type="button" class="panel-tab active" id="tab-add">가구 삽입</button>
+    <button type="button" class="panel-tab" id="tab-list">배치 목록 (<span id="placed-count">0</span>)</button>
+    <button type="button" class="panel-tab" id="tab-data">저장/초기화</button>
+  </div>
+
+  <!-- 탭 1: 가구 삽입 -->
+  <div class="panel-body" id="body-add">
+    <div class="catalog-grid" id="catalog-grid"></div>
+    <div class="form-card">
+      <div class="form-row-2">
+        <div class="field">
+          <label>가구 이름</label>
+          <input type="text" id="inp-name" value="냉장고">
+        </div>
+        <div class="field">
+          <label>색상</label>
+          <input type="color" id="inp-color" value="#b9c7be" style="height:33px;padding:2px;">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label>가로 W (cm)</label>
+          <input type="number" id="inp-w" value="91" min="15" max="450">
+        </div>
+        <div class="field">
+          <label>세로/깊이 D (cm)</label>
+          <input type="number" id="inp-d" value="90" min="15" max="450">
+        </div>
+        <div class="field">
+          <label>높이 H (cm)</label>
+          <input type="number" id="inp-h" value="180" min="10" max="225">
+        </div>
+      </div>
+      <div class="form-row-2">
+        <div class="field">
+          <label>바닥 높이 Y (cm, 적층용)</label>
+          <input type="number" id="inp-y" value="0" min="0" max="180">
+        </div>
+        <div class="field">
+          <label>배치 공간 선택</label>
+          <select id="inp-room">
+            <option value="living">거실</option>
+            <option value="kitchen">주방</option>
+            <option value="master">안방</option>
+            <option value="bed2">침실2</option>
+            <option value="bed3">침실3</option>
+            <option value="utility">다용도실 (세탁실)</option>
+            <option value="balcony">안방 발코니</option>
+          </select>
+        </div>
+      </div>
+      <button type="button" class="btn-primary" id="btn-add-furniture">➕ 이 사이즈로 가구 삽입하기</button>
+    </div>
+  </div>
+
+  <!-- 탭 2: 배치 목록 (간편 삭제/선택) -->
+  <div class="panel-body" id="body-list" style="display:none;">
+    <div class="placed-list" id="placed-list"></div>
+  </div>
+
+  <!-- 탭 3: 저장/불러오기/초기화 -->
+  <div class="panel-body" id="body-data" style="display:none;">
+    <div class="form-card">
+      <button type="button" class="btn-primary" id="btn-save-local">💾 현재 배치 브라우저 저장</button>
+      <div class="btn-row">
+        <button type="button" class="btn-sec" id="btn-reset-default">🔄 기본 샘플 배치 복원</button>
+        <button type="button" class="btn-sec" id="btn-export-json">📥 JSON 파일 저장</button>
+      </div>
+      <button type="button" class="btn-danger" id="btn-clear-all">🗑️ 모든 가구 삭제하기</button>
+      <div class="field">
+        <label>이동 스냅 격자</label>
+        <select id="sel-snap">
+          <option value="0.05" selected>5 cm 단위</option>
+          <option value="0.01">1 cm 정밀 이동</option>
+          <option value="0">자유 이동</option>
+        </select>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 선택된 가구 플로팅 조작 바 -->
+<div id="selected-bar">
+  <div class="sel-top">
+    <div>
+      <span class="sel-title" id="sel-name">냉장고</span>
+      <span class="sel-dim" id="sel-dim">91×90×180cm</span>
+    </div>
+    <button type="button" class="sel-btn" id="btn-deselect" style="padding:4px 8px;">✕</button>
+  </div>
+  <div class="sel-controls">
+    <button type="button" class="sel-btn" id="btn-rot-90">↻ 90°</button>
+    <button type="button" class="sel-btn" id="btn-rot-15">↻ 15°</button>
+    <button type="button" class="sel-btn" id="btn-nudge-l">◀</button>
+    <button type="button" class="sel-btn" id="btn-nudge-u">▲</button>
+    <button type="button" class="sel-btn" id="btn-nudge-d">▼</button>
+    <button type="button" class="sel-btn" id="btn-nudge-r">▶</button>
+    <button type="button" class="sel-btn" id="btn-edit-size">📏 사이즈/색상</button>
+    <button type="button" class="sel-btn del" id="btn-del">🗑️ 삭제</button>
+  </div>
+  <div class="sel-edit-row" id="sel-edit-row">
+    <div><label>가로(cm)</label><input type="number" id="ed-w"></div>
+    <div><label>세로(cm)</label><input type="number" id="ed-d"></div>
+    <div><label>높이(cm)</label><input type="number" id="ed-h"></div>
+    <div><label>바닥Y(cm)</label><input type="number" id="ed-y"></div>
+    <div><label>색상</label><input type="color" id="ed-color" style="height:28px;padding:1px;"></div>
+  </div>
+</div>
+
+<script>
+(function() {
+  /* =========================================================
+     1. 수원 74A 실측 도면 치수 (단위: m, 천장고 2.30m)
+     ========================================================= */
+  const APT_W = 13.39;
+  const APT_D = 8.72;
+  const WALL_H = 2.30;
+  const CENTER_X = APT_W / 2;
+  const CENTER_Z = APT_D / 2;
+
+  const ROOMS = {
+    living:   { name: '거실',       x: 7.80,  z: 6.75, yaw: 0.0,   dim: '4,180×3,790' },
+    kitchen:  { name: '주방',       x: 7.35,  z: 2.00, yaw: 0.0,   dim: '3,470×1,470' },
+    master:   { name: '안방',       x: 11.55, z: 5.55, yaw: 0.0,   dim: '3,290×3,580' },
+    dress:    { name: '드레스룸',   x: 12.43, z: 2.60, yaw: -0.25, dim: '1,650×3,450' },
+    bath2:    { name: '부부욕실',   x: 10.80, z: 2.60, yaw: 0.25,  dim: '1,580×1,950' },
+    balcony:  { name: '안방발코니', x: 11.20, z: 8.10, yaw: 3.14,  dim: '1,830×1,150' },
+    bed2:     { name: '침실2',      x: 4.25,  z: 6.90, yaw: 3.14,  dim: '2,690×3,440' },
+    bed3:     { name: '침실3',      x: 1.45,  z: 6.90, yaw: 3.14,  dim: '2,690×3,440' },
+    bath1:    { name: '공용욕실',   x: 0.88,  z: 3.80, yaw: 0.35,  dim: '1,530×2,150' },
+    pantry:   { name: '팬트리',     x: 4.30,  z: 2.95, yaw: 0.0,   dim: '1,730×1,780' },
+    utility:  { name: '다용도실',   x: 4.30,  z: 1.05, yaw: 0.0,   dim: '1,800×1,860' },
+    entrance: { name: '현관',       x: 2.55,  z: 2.85, yaw: Math.PI, dim: '900×1,900' }
+  };
+
+  /* 기본 제공 가구 프리셋 (사진/종류별 기본 제공 + 사이즈 사용자 결정) */
+  const CATALOG = [
+    { type: 'fridge',     name: '냉장고',       icon: '🧊', w: 91,  d: 90,  h: 180, y: 0, color: '#b9c7be', defaultRoom: 'kitchen' },
+    { type: 'kimchi',     name: '김치냉장고',   icon: '🥬', w: 80,  d: 80,  h: 185, y: 0, color: '#d6cec2', defaultRoom: 'kitchen' },
+    { type: 'washer',     name: '세탁기',       icon: '🫧', w: 69,  d: 85,  h: 98,  y: 0, color: '#334155', defaultRoom: 'utility' },
+    { type: 'dryer',      name: '건조기',       icon: '🌀', w: 69,  d: 84,  h: 98,  y: 0, color: '#475569', defaultRoom: 'utility' },
+    { type: 'bed',        name: '침대',         icon: '🛏️', w: 180, d: 215, h: 105, y: 0, color: '#8f6443', defaultRoom: 'master' },
+    { type: 'desk',       name: '책상',         icon: '🖥️', w: 140, d: 70,  h: 74,  y: 0, color: '#c8a97e', defaultRoom: 'bed2' },
+    { type: 'chair',      name: '의자',         icon: '🪑', w: 55,  d: 55,  h: 88,  y: 0, color: '#4b5563', defaultRoom: 'bed2' },
+    { type: 'dining',     name: '식탁',         icon: '🍽️', w: 160, d: 85,  h: 75,  y: 0, color: '#b8926a', defaultRoom: 'living' },
+    { type: 'cabinet',    name: '수납장',       icon: '🗄️', w: 120, d: 50,  h: 120, y: 0, color: '#cbd5e1', defaultRoom: 'bed3' },
+    { type: 'sofa',       name: '소파',         icon: '🛋️', w: 260, d: 95,  h: 85,  y: 0, color: '#94a3b8', defaultRoom: 'living' },
+    { type: 'airdresser', name: '의류관리기',   icon: '👔', w: 60,  d: 60,  h: 196, y: 0, color: '#3f3f46', defaultRoom: 'master' },
+    { type: 'custom',     name: '직접입력가구', icon: '📦', w: 100, d: 50,  h: 90,  y: 0, color: '#93c5fd', defaultRoom: 'living' }
+  ];
+
+  const DEFAULT_SAMPLE = [
+    { id: 'f_fridge',  type: 'fridge',  name: '냉장고',     w: 91,  d: 90,  h: 180, y: 0,  x: 9.35,  z: 2.15, rot: -90, color: '#b9c7be' },
+    { id: 'f_kimchi',  type: 'kimchi',  name: '김치냉장고', w: 80,  d: 80,  h: 185, y: 0,  x: 9.40,  z: 3.30, rot: -90, color: '#d6cec2' },
+    { id: 'f_washer',  type: 'washer',  name: '세탁기',     w: 69,  d: 85,  h: 98,  y: 0,  x: 3.92,  z: 0.62, rot: 0,   color: '#334155' },
+    { id: 'f_dryer',   type: 'dryer',   name: '건조기',     w: 69,  d: 84,  h: 98,  y: 98, x: 3.92,  z: 0.62, rot: 0,   color: '#475569' },
+    { id: 'f_bed',     type: 'bed',     name: '안방 침대',  w: 180, d: 215, h: 105, y: 0,  x: 12.10, z: 5.95, rot: -90, color: '#8f6443' },
+    { id: 'f_sofa',    type: 'sofa',    name: '거실 소파',  w: 260, d: 95,  h: 85,  y: 0,  x: 6.35,  z: 6.50, rot: 90,  color: '#94a3b8' },
+    { id: 'f_dining',  type: 'dining',  name: '식탁',       w: 160, d: 85,  h: 75,  y: 0,  x: 7.45,  z: 4.35, rot: 0,   color: '#b8926a' },
+    { id: 'f_desk',    type: 'desk',    name: '책상',       w: 140, d: 70,  h: 74,  y: 0,  x: 4.85,  z: 6.90, rot: -90, color: '#c8a97e' },
+    { id: 'f_chair',   type: 'chair',   name: '의자',       w: 55,  d: 55,  h: 88,  y: 0,  x: 4.15,  z: 6.90, rot: 90,  color: '#4b5563' },
+    { id: 'f_cabinet', type: 'cabinet', name: '수납장',     w: 120, d: 50,  h: 120, y: 0,  x: 1.45,  z: 8.30, rot: 180, color: '#cbd5e1' }
+  ];
+
+  /* =========================================================
+     2. THREE.JS 씬 & 렌더러 초기화
+     ========================================================= */
+  const webglCanvas = document.getElementById('webgl-canvas');
+  const overlayCanvas = document.getElementById('overlay-canvas');
+  const overlayCtx = overlayCanvas.getContext('2d');
+  const miniCanvas = document.getElementById('minimap-canvas');
+  const miniCtx = miniCanvas.getContext('2d');
+
+  const renderer = new THREE.WebGLRenderer({ canvas: webglCanvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xdde5ed);
+
+  const perspCamera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.08, 150);
+  const orthoCamera = new THREE.OrthographicCamera(-8, 8, 5, -5, 0.1, 60);
+  let activeCamera = perspCamera;
+
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x8b857a, 0.65));
+  const dirLight = new THREE.DirectionalLight(0xfff9f0, 0.78);
+  dirLight.position.set(12, 18, 15);
+  dirLight.castShadow = true;
+  dirLight.shadow.mapSize.set(2048, 2048);
+  dirLight.shadow.camera.left = -15;
+  dirLight.shadow.camera.right = 15;
+  dirLight.shadow.camera.top = 15;
+  dirLight.shadow.camera.bottom = -15;
+  scene.add(dirLight);
+
+  const apartmentGroup = new THREE.Group();
+  const ceilingGroup = new THREE.Group();
+  const furnitureGroup = new THREE.Group();
+  const doorZoneGroup = new THREE.Group();
+  scene.add(apartmentGroup, ceilingGroup, furnitureGroup, doorZoneGroup);
+
+  /* =========================================================
+     3. 프로시저럴 텍스처 (바닥 마루, 타일, 가전 전면 그래픽)
+     ========================================================= */
+  function makeWoodTexture() {
+    const c = document.createElement('canvas'); c.width = c.height = 512;
+    const g = c.getContext('2d');
+    g.fillStyle = '#c4ae91'; g.fillRect(0, 0, 512, 512);
+    for (let i = 0; i < 8; i++) {
+      const y = i * 64;
+      g.fillStyle = i % 2 === 0 ? '#bfa88a' : '#cab599';
+      g.fillRect(0, y, 512, 62);
+      g.fillStyle = 'rgba(90,72,52,0.28)';
+      g.fillRect(0, y + 62, 512, 2);
+      g.fillRect((i * 173) % 512, y, 2, 62);
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(6, 4);
+    tex.encoding = THREE.sRGBEncoding;
+    return tex;
+  }
+
+  function makeTileTexture(hex, cols = 4) {
+    const c = document.createElement('canvas'); c.width = c.height = 256;
+    const g = c.getContext('2d');
+    g.fillStyle = '#94a3b8'; g.fillRect(0, 0, 256, 256);
+    const s = 256 / cols;
+    g.fillStyle = hex;
+    for (let x = 0; x < cols; x++) {
+      for (let y = 0; y < cols; y++) {
+        g.fillRect(x * s + 1.5, y * s + 1.5, s - 3, s - 3);
+      }
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(3, 3);
+    tex.encoding = THREE.sRGBEncoding;
+    return tex;
+  }
+
+  function makeFrontTexture(type, baseHex) {
+    const c = document.createElement('canvas'); c.width = 256; c.height = 384;
+    const g = c.getContext('2d');
+    g.fillStyle = baseHex; g.fillRect(0, 0, 256, 384);
+    g.strokeStyle = 'rgba(15,23,42,0.45)'; g.lineWidth = 4;
+    g.strokeRect(4, 4, 248, 376);
+
+    if (type === 'fridge' || type === 'kimchi') {
+      g.fillStyle = type === 'fridge' ? '#d8d1c5' : baseHex;
+      g.fillRect(6, 215, 244, 163);
+      g.fillStyle = '#334155';
+      g.fillRect(126, 6, 4, 372);
+      g.fillRect(6, 210, 244, 6);
+      if (type === 'kimchi') g.fillRect(6, 295, 244, 5);
+      g.fillStyle = 'rgba(30,41,59,0.5)';
+      g.fillRect(112, 165, 8, 38); g.fillRect(136, 165, 8, 38);
+    } else if (type === 'washer' || type === 'dryer') {
+      g.fillStyle = '#0f172a'; g.fillRect(8, 8, 240, 56);
+      g.fillStyle = type === 'dryer' ? '#fb923c' : '#38bdf8';
+      g.font = 'bold 16px sans-serif';
+      g.fillText(type === 'dryer' ? 'DRYER' : 'WASHER', 84, 42);
+      g.beginPath(); g.arc(128, 220, 88, 0, Math.PI * 2);
+      g.fillStyle = '#94a3b8'; g.fill();
+      g.beginPath(); g.arc(128, 220, 74, 0, Math.PI * 2);
+      g.fillStyle = '#090d16'; g.fill();
+    } else if (type === 'cabinet' || type === 'airdresser') {
+      g.beginPath(); g.moveTo(128, 6); g.lineTo(128, 378); g.stroke();
+      g.fillStyle = 'rgba(30,41,59,0.55)';
+      g.fillRect(112, 170, 6, 44); g.fillRect(138, 170, 6, 44);
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.encoding = THREE.sRGBEncoding;
+    return tex;
+  }
+
+  /* =========================================================
+     4. 74A 벽체, 바닥, 고정 설비 및 문 열림 반경 구축
+     ========================================================= */
+  const wallColliders = [];   // 충돌 검사용 벽체 박스 { name, minX, maxX, minZ, maxZ }
+  const fixedObstacles = [];  // 싱크대/욕실 설비 등 고정 장애물
+  const doorSwingZones = [];  // 문 열림 회전 반경 { name, cx, cz, radius, minX, maxX, minZ, maxZ, open }
+  const doorMeshes = [];
+  let doorsOpened = true;
+
+  const matWall = new THREE.MeshStandardMaterial({ color: 0xf4f2ed, roughness: 0.85 });
+  const matOuterWall = new THREE.MeshStandardMaterial({ color: 0xd8dee6, roughness: 0.8 });
+  const matWood = new THREE.MeshStandardMaterial({ map: makeWoodTexture(), roughness: 0.65 });
+  const matBathTile = new THREE.MeshStandardMaterial({ map: makeTileTexture('#cbd5e1', 5), roughness: 0.55 });
+  const matEntryTile = new THREE.MeshStandardMaterial({ map: makeTileTexture('#94a3b8', 3), roughness: 0.6 });
+  const matGlass = new THREE.MeshStandardMaterial({ color: 0x93c5fd, transparent: true, opacity: 0.35, roughness: 0.15 });
+  const matCabinet = new THREE.MeshStandardMaterial({ color: 0xebe9e4, roughness: 0.5 });
+  const matCounter = new THREE.MeshStandardMaterial({ color: 0x57534e, roughness: 0.4 });
+  const matDoor = new THREE.MeshStandardMaterial({ color: 0xd6cfc2, roughness: 0.6 });
+  const matDoorZone = new THREE.MeshBasicMaterial({ color: 0x3b82f6, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false });
+
+  function addFloor(x, z, w, d, mat, y = 0) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.04, d), mat);
+    m.position.set(x, y - 0.02, z);
+    m.receiveShadow = true;
+    apartmentGroup.add(m);
+  }
+
+  function addWall(x1, z1, x2, z2, thick = 0.16, h = WALL_H, isOuter = false, label = '벽체') {
+    const dx = x2 - x1, dz = z2 - z1;
+    const len = Math.hypot(dx, dz);
+    if (len < 0.01) return;
+    const cx = (x1 + x2) / 2, cz = (z1 + z2) / 2;
+    const angle = Math.atan2(dz, dx);
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(len, h, thick), isOuter ? matOuterWall : matWall);
+    mesh.position.set(cx, h / 2, cz);
+    mesh.rotation.y = -angle;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    apartmentGroup.add(mesh);
+
+    const hw = (Math.abs(Math.cos(angle)) * len + Math.abs(Math.sin(angle)) * thick) / 2;
+    const hd = (Math.abs(Math.sin(angle)) * len + Math.abs(Math.cos(angle)) * thick) / 2;
+    wallColliders.push({ name: label, minX: cx - hw, maxX: cx + hw, minZ: cz - hd, maxZ: cz + hd });
+  }
+
+  function addFixedBox(name, cx, cz, w, d, h, y = 0, mat = matCabinet, collide = true) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    m.position.set(cx, y + h / 2, cz);
+    m.castShadow = true; m.receiveShadow = true;
+    apartmentGroup.add(m);
+    if (collide) {
+      fixedObstacles.push({ name, minX: cx - w / 2, maxX: cx + w / 2, minZ: cz - d / 2, maxZ: cz + d / 2, minY: y, maxY: y + h });
+    }
+  }
+
+  function addSwingDoor(name, hingeX, hingeZ, width, openAngleRad, closeAngleRad) {
+    const pivot = new THREE.Group();
+    pivot.position.set(hingeX, 0, hingeZ);
+    const leaf = new THREE.Mesh(new THREE.BoxGeometry(width, 2.08, 0.045), matDoor);
+    leaf.position.set(width / 2, 1.04, 0);
+    leaf.castShadow = true;
+    pivot.add(leaf);
+    pivot.rotation.y = openAngleRad;
+    apartmentGroup.add(pivot);
+
+    // 문 열림 반경 표시 부채꼴 및 충돌 AABB
+    const startA = Math.min(-openAngleRad, -closeAngleRad);
+    const sweepA = Math.abs(openAngleRad - closeAngleRad);
+    const arcGeo = new THREE.CircleGeometry(width, 24, startA, sweepA);
+    arcGeo.rotateX(-Math.PI / 2);
+    const arcMesh = new THREE.Mesh(arcGeo, matDoorZone);
+    arcMesh.position.set(hingeX, 0.015, hingeZ);
+    doorZoneGroup.add(arcMesh);
+
+    const pts = [
+      [hingeX, hingeZ],
+      [hingeX + Math.cos(-openAngleRad) * width, hingeZ + Math.sin(-openAngleRad) * width],
+      [hingeX + Math.cos(-closeAngleRad) * width, hingeZ + Math.sin(-closeAngleRad) * width],
+      [hingeX + Math.cos(-(openAngleRad + closeAngleRad) / 2) * width, hingeZ + Math.sin(-(openAngleRad + closeAngleRad) / 2) * width]
+    ];
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    pts.forEach(([px, pz]) => {
+      minX = Math.min(minX, px); maxX = Math.max(maxX, px);
+      minZ = Math.min(minZ, pz); maxZ = Math.max(maxZ, pz);
+    });
+
+    doorMeshes.push({ pivot, openAngleRad, closeAngleRad, arcMesh });
+    doorSwingZones.push({ name, minX: minX - 0.04, maxX: maxX + 0.04, minZ: minZ - 0.04, maxZ: maxZ + 0.04 });
+  }
+
+  function buildApartment() {
+    // 바닥 마감 (거실/방 마루, 욕실/현관/발코니/다용도실 타일)
+    addFloor(CENTER_X, CENTER_Z, APT_W, APT_D, matWood, 0);
+    addFloor(2.53, 2.88, 1.70, 2.05, matEntryTile, 0.003);   // 현관
+    addFloor(0.88, 3.80, 1.65, 2.25, matBathTile, 0.003);    // 공용욕실
+    addFloor(10.80, 2.55, 1.65, 2.05, matBathTile, 0.003);   // 부부욕실
+    addFloor(4.30, 1.05, 1.85, 1.95, matBathTile, 0.003);    // 다용도실
+    addFloor(11.30, 8.10, 3.30, 1.15, matBathTile, 0.003);   // 안방발코니
+
+    // 1) 외곽 벽체 (74A 판상형 3Bay + 발코니/현관 돌출부 반영)
+    addWall(0.08, 2.65, 0.08, 8.64, 0.18, WALL_H, true, '좌측 외벽');
+    addWall(0.08, 8.64, 13.31, 8.64, 0.18, WALL_H, true, '남측 전면 외벽');
+    addWall(13.31, 1.50, 13.31, 8.64, 0.18, WALL_H, true, '우측 외벽');
+    addWall(0.08, 2.65, 1.68, 2.65, 0.18, WALL_H, true, '북서측 외벽');
+    addWall(1.68, 1.86, 1.68, 2.65, 0.18, WALL_H, true, '현관 좌측 외벽');
+    addWall(1.68, 1.86, 3.38, 1.86, 0.18, WALL_H, true, '현관 출입구 외벽');
+    addWall(3.38, 0.10, 3.38, 1.86, 0.18, WALL_H, true, '다용도실 좌측 외벽');
+    addWall(3.38, 0.10, 9.95, 0.10, 0.18, WALL_H, true, '북측 주방/다용도실 외벽');
+    addWall(9.95, 0.10, 9.95, 1.50, 0.18, WALL_H, true, '부부욕실 좌측 외벽');
+    addWall(9.95, 1.50, 13.31, 1.50, 0.18, WALL_H, true, '북동측 외벽');
+
+    // 2) 내부 실별 구획 벽체 (문 개구부 비워둠)
+    // 침실3 / 침실2 사이 벽
+    addWall(2.85, 5.15, 2.85, 8.64, 0.13, WALL_H, false, '침실2·3 사이벽');
+    // 침실3 상단벽 (문 폭 0.85m: x=1.90~2.75)
+    addWall(0.08, 5.15, 1.90, 5.15, 0.13, WALL_H, false, '침실3 벽체');
+    // 침실2 상단벽 (문 폭 0.85m: x=3.00~3.85)
+    addWall(3.85, 5.15, 5.65, 5.15, 0.13, WALL_H, false, '침실2 벽체');
+    addWall(5.65, 5.15, 5.65, 8.64, 0.13, WALL_H, false, '침실2·거실 사이벽');
+
+    // 공용욕실 벽체 (문 폭 0.78m: z=4.15~4.93)
+    addWall(1.68, 2.65, 1.68, 4.15, 0.13, WALL_H, false, '공용욕실 벽체');
+    addWall(1.68, 4.93, 1.68, 5.15, 0.13, WALL_H, false, '공용욕실 벽체');
+
+    // 현관 중문 & 신발장
+    addFixedBox('현관 신발장', 1.92, 2.95, 0.38, 1.75, 2.20, 0, matCabinet, true);
+    addWall(3.38, 1.86, 3.38, 3.90, 0.13, WALL_H, false, '현관·팬트리 사이벽');
+
+    // 팬트리 & 다용도실 구획 (팬트리 문: z=3.05~3.80, 다용도실 문: z=0.45~1.20)
+    addWall(5.25, 0.10, 5.25, 0.45, 0.13, WALL_H, false, '다용도실 벽체');
+    addWall(5.25, 1.20, 5.25, 3.05, 0.13, WALL_H, false, '팬트리·주방 사이벽');
+    addWall(3.38, 2.02, 5.25, 2.02, 0.13, WALL_H, false, '팬트리·다용도실 사이벽');
+    addWall(3.38, 3.90, 5.25, 3.90, 0.13, WALL_H, false, '팬트리 하단벽');
+
+    // 주방 상부/하부 싱크대 & 냉장고장 구획
+    addFixedBox('주방 싱크대', 7.15, 0.45, 3.55, 0.65, 0.86, 0, matCabinet, true);
+    addFixedBox('싱크대 상판', 7.15, 0.45, 3.55, 0.66, 0.04, 0.86, matCounter, false);
+    addFixedBox('주방 상부장', 7.15, 0.30, 3.55, 0.36, 0.72, 1.56, matCabinet, false);
+    addFixedBox('주방 아일랜드 식탁', 7.20, 1.85, 1.85, 0.75, 0.86, 0, matCabinet, true);
+    addFixedBox('아일랜드 상판', 7.20, 1.85, 1.87, 0.77, 0.04, 0.86, matCounter, false);
+
+    // 안방 & 드레스룸 & 부부욕실 벽체
+    // 안방 좌측 벽 (안방 문: z=4.15~5.05)
+    addWall(9.95, 1.50, 9.95, 4.15, 0.14, WALL_H, false, '안방·주방 사이벽');
+    addWall(9.95, 5.05, 9.95, 7.50, 0.14, WALL_H, false, '안방·거실 사이벽');
+
+    // 안방 상단(드레스룸/부부욕실) 구획벽 (부부욕실 문: x=10.55~11.30, 드레스룸 문: x=12.00~12.85)
+    addWall(9.95, 3.60, 10.55, 3.60, 0.13, WALL_H, false, '부부욕실 벽체');
+    addWall(11.30, 3.60, 12.00, 3.60, 0.13, WALL_H, false, '드레스룸·욕실 사이벽');
+    addWall(12.85, 3.60, 13.31, 3.60, 0.13, WALL_H, false, '드레스룸 우측벽');
+    addWall(11.60, 1.50, 11.60, 3.60, 0.13, WALL_H, false, '부부욕실·드레스룸 구획벽');
+
+    // 안방 하단 발코니 분합창 벽체 (개구부: x=10.45~12.55)
+    addWall(9.95, 7.50, 10.45, 7.50, 0.14, WALL_H, false, '안방 발코니 좌측벽');
+    addWall(12.55, 7.50, 13.31, 7.50, 0.14, WALL_H, false, '안방 발코니 우측벽');
+    // 발코니 유리창
+    const balGlass = new THREE.Mesh(new THREE.BoxGeometry(2.10, 2.05, 0.05), matGlass);
+    balGlass.position.set(11.50, 1.03, 7.50);
+    apartmentGroup.add(balGlass);
+
+    // 욕실 고정 설비 (변기/세면대/욕조)
+    addFixedBox('공용욕실 욕조', 0.48, 3.15, 0.72, 1.50, 0.55, 0, matCabinet, true);
+    addFixedBox('공용욕실 세면대', 0.42, 4.45, 0.52, 0.75, 0.80, 0, matCabinet, true);
+    addFixedBox('부부욕실 세면대', 10.35, 2.15, 0.55, 0.85, 0.80, 0, matCabinet, true);
+
+    // 3) 여닫이문 & 문 열림 충돌 반경 등록
+    addSwingDoor('현관문', 2.95, 1.86, 0.92, Math.PI * 0.55, Math.PI);
+    addSwingDoor('공용욕실 문', 1.68, 4.93, 0.76, Math.PI * 0.95, Math.PI * 0.5);
+    addSwingDoor('침실3 문', 2.75, 5.15, 0.84, Math.PI * 0.55, Math.PI);
+    addSwingDoor('침실2 문', 3.00, 5.15, 0.84, Math.PI * 0.45, 0);
+    addSwingDoor('팬트리 문', 5.25, 3.05, 0.75, -Math.PI * 0.95, -Math.PI * 0.5);
+    addSwingDoor('다용도실 문', 5.25, 1.20, 0.75, -Math.PI * 0.95, -Math.PI * 0.5);
+    addSwingDoor('안방 문', 9.95, 4.15, 0.88, -Math.PI * 0.05, Math.PI * 0.5);
+    addSwingDoor('부부욕실 문', 10.55, 3.60, 0.74, Math.PI * 0.45, 0);
+    addSwingDoor('드레스룸 문', 12.00, 3.60, 0.82, Math.PI * 0.45, 0);
+
+    // 1인칭용 반투명 천장
+    const ceil = new THREE.Mesh(
+      new THREE.PlaneGeometry(APT_W, APT_D),
+      new THREE.MeshStandardMaterial({ color: 0xf8fafc, side: THREE.DoubleSide })
+    );
+    ceil.rotation.x = Math.PI / 2;
+    ceil.position.set(CENTER_X, WALL_H + 0.01, CENTER_Z);
+    ceilingGroup.add(ceil);
+    ceilingGroup.visible = false;
+  }
+
+  /* =========================================================
+     5. 가구 생성, 충돌 검사 (벽·가구·문 열림 간섭) 및 빨간색 하이라이트
+     ========================================================= */
+  let placedItems = [];
+  let selectedId = null;
+  let placeMode = false;
+  let showLabels = true;
+  let snapStep = 0.05;
+  const itemMeshes = new Map();
+
+  function getItemAABB(item, testX = item.x, testZ = item.z, testRot = item.rot, testW = item.w, testD = item.d, testY = item.y, testH = item.h) {
+    const rad = (testRot * Math.PI) / 180;
+    const wm = testW / 100;
+    const dm = testD / 100;
+    const spanX = Math.abs(Math.cos(rad)) * wm + Math.abs(Math.sin(rad)) * dm;
+    const spanZ = Math.abs(Math.sin(rad)) * wm + Math.abs(Math.cos(rad)) * dm;
+    return {
+      minX: testX - spanX / 2,
+      maxX: testX + spanX / 2,
+      minZ: testZ - spanZ / 2,
+      maxZ: testZ + spanZ / 2,
+      minY: testY / 100,
+      maxY: (testY + testH) / 100
+    };
+  }
+
+  function boxesOverlap2D(a, b, tol = 0.005) {
+    return (a.minX < b.maxX - tol) && (a.maxX > b.minX + tol) &&
+           (a.minZ < b.maxZ - tol) && (a.maxZ > b.minZ + tol);
+  }
+
+  function boxesOverlap3D(a, b, tol = 0.005) {
+    return boxesOverlap2D(a, b, tol) &&
+           (a.minY < b.maxY - tol) && (a.maxY > b.minY + tol);
+  }
+
+  // 배치 가능 여부 및 불가능 사유 판정 함수
+  function checkPlacementCollision(item, testX, testZ, testRot = item.rot, testW = item.w, testD = item.d, testY = item.y, testH = item.h) {
+    const box = getItemAABB(item, testX, testZ, testRot, testW, testD, testY, testH);
+
+    // 1. 아파트 전체 외곽 이탈 검사
+    if (box.minX < 0.16 || box.maxX > APT_W - 0.16 || box.minZ < 0.18 || box.maxZ > APT_D - 0.18) {
+      return { valid: false, reason: '배치 불가: 아파트 외벽 밖으로 벗어났습니다.' };
+    }
+    if (box.maxY > WALL_H) {
+      return { valid: false, reason: `배치 불가: 천장 높이(${Math.round(WALL_H * 100)}cm)를 초과했습니다.` };
+    }
+
+    // 2. 내부 벽체 충돌 검사
+    for (const w of wallColliders) {
+      if (boxesOverlap2D(box, w, 0.004)) {
+        return { valid: false, reason: `배치 불가: [${w.name}]과(와) 겹칩니다.` };
+      }
+    }
+
+    // 3. 고정 주방/욕실 설비 충돌 검사
+    for (const obs of fixedObstacles) {
+      if (boxesOverlap3D(box, obs, 0.004)) {
+        return { valid: false, reason: `배치 불가: [${obs.name}]과(와) 겹칩니다.` };
+      }
+    }
+
+    // 4. 문 열림 반경 간섭 검사 (바닥에서 문 높이 2.08m 이하일 때)
+    if (box.minY < 2.05) {
+      for (const door of doorSwingZones) {
+        if (boxesOverlap2D(box, door, 0.01)) {
+          return { valid: false, reason: `배치 불가: [${door.name}] 열림 반경을 가로막아 문이 열리지 않습니다.` };
+        }
+      }
+    }
+
+    // 5. 이미 배치된 다른 가구와의 3D 충돌 검사 (높이 Y가 다르면 세탁기+건조기 직렬 적층 허용)
+    for (const other of placedItems) {
+      if (other.id === item.id) continue;
+      const otherBox = getItemAABB(other);
+      if (boxesOverlap3D(box, otherBox, 0.005)) {
+        return { valid: false, reason: `배치 불가: 기존 가구 [${other.name}]과(와) 겹칩니다.` };
+      }
+    }
+
+    return { valid: true, reason: '' };
+  }
+
+  function createFurnitureMesh(item) {
+    const group = new THREE.Group();
+    const wm = item.w / 100, hm = item.h / 100, dm = item.d / 100;
+
+    const sideMat = new THREE.MeshStandardMaterial({ color: item.color, roughness: 0.55 });
+    const frontTex = makeFrontTexture(item.type, item.color);
+    const frontMat = new THREE.MeshStandardMaterial({ map: frontTex, roughness: 0.45 });
+
+    const bodyGeo = new THREE.BoxGeometry(wm, hm, dm);
+    const materials = [sideMat, sideMat, sideMat, sideMat, frontMat, sideMat];
+    const bodyMesh = new THREE.Mesh(bodyGeo, materials);
+    bodyMesh.position.y = hm / 2;
+    bodyMesh.castShadow = true;
+    bodyMesh.receiveShadow = true;
+    bodyMesh.userData.furnitureId = item.id;
+    group.add(bodyMesh);
+
+    // 침대/소파/식탁 디테일 추가
+    if (item.type === 'bed') {
+      const mattress = new THREE.Mesh(
+        new THREE.BoxGeometry(wm * 0.94, hm * 0.35, dm * 0.88),
+        new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.8 })
+      );
+      mattress.position.set(0, hm * 0.45, dm * 0.04);
+      mattress.userData.furnitureId = item.id;
+      group.add(mattress);
+    } else if (item.type === 'sofa') {
+      const back = new THREE.Mesh(new THREE.BoxGeometry(wm, hm * 0.55, dm * 0.25), sideMat);
+      back.position.set(0, hm * 0.72, -dm * 0.37);
+      back.userData.furnitureId = item.id;
+      group.add(back);
+    }
+
+    // 외곽 테두리 & 충돌/선택 하이라이트 와이어프레임
+    const edges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(bodyGeo),
+      new THREE.LineBasicMaterial({ color: 0x1e293b })
+    );
+    edges.position.y = hm / 2;
+    group.add(edges);
+
+    // 충돌 시 전체를 빨간색으로 덮는 경고 오버레이 박스
+    const warnMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(wm + 0.02, hm + 0.02, dm + 0.02),
+      new THREE.MeshBasicMaterial({ color: 0xff1e1e, transparent: true, opacity: 0.62, depthTest: false })
+    );
+    warnMesh.position.y = hm / 2;
+    warnMesh.visible = false;
+    group.add(warnMesh);
+
+    group.position.set(item.x, item.y / 100, item.z);
+    group.rotation.y = (item.rot * Math.PI) / 180;
+    group.userData = { id: item.id, warnMesh, edges, bodyMesh, sideMat, frontMat };
+    return group;
+  }
+
+  function setItemCollisionVisual(id, isInvalid, reason = '') {
+    const mesh = itemMeshes.get(id);
+    const banner = document.getElementById('collision-banner');
+    if (mesh) {
+      mesh.userData.warnMesh.visible = isInvalid;
+      mesh.userData.edges.material.color.setHex(isInvalid ? 0xdc2626 : (id === selectedId ? 0x2563eb : 0x1e293b));
+    }
+    if (isInvalid && reason) {
+      banner.textContent = '🚫 ' + reason;
+      banner.classList.add('visible');
+    } else if (!isInvalid) {
+      banner.classList.remove('visible');
+    }
+  }
+
+  function rebuildAllFurniture() {
+    while (furnitureGroup.children.length) furnitureGroup.remove(furnitureGroup.children[0]);
+    itemMeshes.clear();
+    placedItems.forEach(item => {
+      const m = createFurnitureMesh(item);
+      furnitureGroup.add(m);
+      itemMeshes.set(item.id, m);
+    });
+    updatePlacedListUI();
+    updateSelectionUI();
+  }
+
+  function rebuildSingleMesh(item) {
+    const old = itemMeshes.get(item.id);
+    if (old) furnitureGroup.remove(old);
+    const m = createFurnitureMesh(item);
+    furnitureGroup.add(m);
+    itemMeshes.set(item.id, m);
+  }
+
+  /* =========================================================
+     6. 3가지 카메라 모드 (1인칭 / 3D 조감도 / 2D 조감도) & 컨트롤
+     ========================================================= */
+  let viewMode = '3d'; // 'fp' | '3d' | '2d'
+
+  // 3D 조감도 상태
+  const orbit = {
+    target: new THREE.Vector3(CENTER_X, 0.5, CENTER_Z),
+    yaw: 0.0,
+    pitch: 0.92,
+    dist: 13.5
+  };
+
+  // 2D 조감도 상태 (카메라 위치/각도 고정, 줌인·아웃만 허용)
+  const ortho2D = {
+    zoom: 1.0
+  };
+
+  // 1인칭 상태
+  const fp = {
+    x: 7.80,
+    y: 1.60,
+    z: 6.75,
+    yaw: 0.0,
+    pitch: 0.0
+  };
+
+  function updateCameraTransform() {
+    const aspect = window.innerWidth / window.innerHeight;
+    if (viewMode === '3d') {
+      activeCamera = perspCamera;
+      perspCamera.aspect = aspect;
+      perspCamera.updateProjectionMatrix();
+      const sinP = Math.sin(orbit.pitch), cosP = Math.cos(orbit.pitch);
+      perspCamera.position.set(
+        orbit.target.x + orbit.dist * cosP * Math.sin(orbit.yaw),
+        orbit.target.y + orbit.dist * sinP,
+        orbit.target.z + orbit.dist * cosP * Math.cos(orbit.yaw)
+      );
+      perspCamera.lookAt(orbit.target);
+    } else if (viewMode === '2d') {
+      activeCamera = orthoCamera;
+      const halfH = (APT_D * 0.64) / ortho2D.zoom;
+      const halfW = halfH * aspect;
+      orthoCamera.left = -halfW;
+      orthoCamera.right = halfW;
+      orthoCamera.top = halfH;
+      orthoCamera.bottom = -halfH;
+      orthoCamera.updateProjectionMatrix();
+      // 2D 모드는 평면 중앙 수직 상공 고정 (이동/회전 불가, 줌인·아웃만 가능)
+      orthoCamera.position.set(CENTER_X, 22, CENTER_Z);
+      orthoCamera.up.set(0, 0, -1);
+      orthoCamera.lookAt(CENTER_X, 0, CENTER_Z);
+    } else if (viewMode === 'fp') {
+      activeCamera = perspCamera;
+      perspCamera.aspect = aspect;
+      perspCamera.updateProjectionMatrix();
+      perspCamera.position.set(fp.x, fp.y, fp.z);
+      const lookX = fp.x - Math.sin(fp.yaw) * Math.cos(fp.pitch);
+      const lookY = fp.y + Math.sin(fp.pitch);
+      const lookZ = fp.z - Math.cos(fp.yaw) * Math.cos(fp.pitch);
+      perspCamera.lookAt(lookX, lookY, lookZ);
+    }
+  }
+
+  function setViewMode(mode) {
+    viewMode = mode;
+    document.getElementById('btn-mode-fp').classList.toggle('active', mode === 'fp');
+    document.getElementById('btn-mode-3d').classList.toggle('active', mode === '3d');
+    document.getElementById('btn-mode-2d').classList.toggle('active', mode === '2d');
+
+    ceilingGroup.visible = (mode === 'fp');
+    document.getElementById('minimap-box').classList.toggle('visible', mode === 'fp');
+    document.getElementById('room-bar').classList.toggle('visible', mode === 'fp');
+    document.getElementById('joystick-zone').classList.toggle('visible', mode === 'fp');
+
+    const hint = document.getElementById('hint-pill');
+    if (mode === 'fp') {
+      hint.textContent = '1인칭 보기: 화면 드래그로 상하좌우 둘러보기 · 조이스틱/방향키로 앞뒤좌우 이동';
+    } else if (mode === '3d') {
+      hint.textContent = '3D 조감도: 드래그 회전 · 우클릭/두손가락 카메라 이동 · 휠/핀치 줌 인·아웃';
+    } else {
+      hint.textContent = '2D 조감도: 카메라 고정 평면도 · 휠/핀치/+− 버튼으로 줌 인·아웃';
+    }
+    updateCameraTransform();
+  }
+
+  // 1인칭 이동 충돌 체크 (벽을 뚫고 나가지 않도록 보정)
+  function canWalkTo(nx, nz) {
+    const r = 0.24;
+    if (nx < 0.25 || nx > APT_W - 0.25 || nz < 0.25 || nz > APT_D - 0.25) return false;
+    const pBox = { minX: nx - r, maxX: nx + r, minZ: nz - r, maxZ: nz + r };
+    for (const w of wallColliders) {
+      if (boxesOverlap2D(pBox, w, 0)) return false;
+    }
+    return true;
+  }
+
+  function moveFirstPerson(forward, right) {
+    const sinY = Math.sin(fp.yaw), cosY = Math.cos(fp.yaw);
+    const dx = (-sinY * forward + cosY * right);
+    const dz = (-cosY * forward - sinY * right);
+    if (canWalkTo(fp.x + dx, fp.z)) fp.x += dx;
+    if (canWalkTo(fp.x, fp.z + dz)) fp.z += dz;
+    updateRoomHighlight();
+  }
+
+  function updateRoomHighlight() {
+    let closest = 'living', minD = Infinity;
+    for (const [key, r] of Object.entries(ROOMS)) {
+      const d = Math.hypot(fp.x - r.x, fp.z - r.z);
+      if (d < minD) { minD = d; closest = key; }
+    }
+    document.getElementById('minimap-room-title').textContent = ROOMS[closest].name;
+    document.querySelectorAll('.room-chip').forEach(btn => {
+      btn.classList.toggle('active-room', btn.dataset.room === closest);
+    });
+  }
+
+  /* =========================================================
+     7. 포인터/터치 인터랙션 (가구 드래그 배치 + 카메라 조작)
+     ========================================================= */
+  const raycaster = new THREE.Raycaster();
+  const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  const pointerNDC = new THREE.Vector2();
+
+  let isDraggingFurniture = false;
+  let dragStartPos = { x: 0, z: 0 };
+  let dragOffset = { x: 0, z: 0 };
+
+  let pointerMode = 'none'; // 'rotate' | 'pan' | 'furniture'
+  let lastPtr = { x: 0, y: 0 };
+  let pinchDist = 0;
+  const activeTouches = new Map();
+
+  function getNDC(clientX, clientY) {
+    const rect = webglCanvas.getBoundingClientRect();
+    pointerNDC.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    pointerNDC.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+  }
+
+  function hitFurniture(clientX, clientY) {
+    getNDC(clientX, clientY);
+    raycaster.setFromCamera(pointerNDC, activeCamera);
+    const targets = [];
+    itemMeshes.forEach(g => targets.push(g.userData.bodyMesh));
+    const hits = raycaster.intersectObjects(targets, false);
+    if (hits.length > 0) return hits[0].object.userData.furnitureId;
+    return null;
+  }
+
+  function raycastFloor(clientX, clientY) {
+    getNDC(clientX, clientY);
+    raycaster.setFromCamera(pointerNDC, activeCamera);
+    const pt = new THREE.Vector3();
+    return raycaster.ray.intersectPlane(floorPlane, pt) ? pt : null;
+  }
+
+  webglCanvas.addEventListener('pointerdown', (e) => {
+    activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    lastPtr = { x: e.clientX, y: e.clientY };
+
+    if (activeTouches.size === 2) {
+      const pts = Array.from(activeTouches.values());
+      pinchDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      pointerMode = 'pinch';
+      isDraggingFurniture = false;
+      return;
+    }
+
+    // 가구 클릭 감지 (배치 모드이거나 이미 선택된 가구 터치 시)
+    const hitId = hitFurniture(e.clientX, e.clientY);
+    if (hitId && (placeMode || viewMode !== 'fp')) {
+      selectFurniture(hitId);
+      const item = placedItems.find(it => it.id === hitId);
+      const floorPt = raycastFloor(e.clientX, e.clientY);
+      if (item && floorPt) {
+        isDraggingFurniture = true;
+        pointerMode = 'furniture';
+        dragStartPos = { x: item.x, z: item.z };
+        dragOffset = { x: item.x - floorPt.x, z: item.z - floorPt.z };
+        return;
+      }
+    } else if (placeMode && !hitId) {
+      selectFurniture(null);
+    }
+
+    if (viewMode === '2d') {
+      // 2D 조감도는 카메라 이동/회전 고정 (줌인·아웃만 허용)
+      pointerMode = 'none';
+    } else if (viewMode === '3d') {
+      pointerMode = (e.button === 2 || e.shiftKey) ? 'pan' : 'rotate';
+    } else if (viewMode === 'fp') {
+      pointerMode = 'rotate';
+    }
+  });
+
+  webglCanvas.addEventListener('pointermove', (e) => {
+    if (activeTouches.has(e.pointerId)) {
+      activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+
+    // 두 손가락 핀치 줌 & 3D 카메라 평행 이동
+    if (activeTouches.size === 2) {
+      const pts = Array.from(activeTouches.values());
+      const newDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      if (pinchDist > 0) {
+        const ratio = pinchDist / newDist;
+        applyZoom(ratio);
+      }
+      pinchDist = newDist;
+      return;
+    }
+
+    // 가구 드래그 이동 및 실시간 충돌 검사
+    if (isDraggingFurniture && selectedId) {
+      const item = placedItems.find(it => it.id === selectedId);
+      const floorPt = raycastFloor(e.clientX, e.clientY);
+      if (item && floorPt) {
+        let nx = floorPt.x + dragOffset.x;
+        let nz = floorPt.z + dragOffset.z;
+        if (snapStep > 0) {
+          nx = Math.round(nx / snapStep) * snapStep;
+          nz = Math.round(nz / snapStep) * snapStep;
+        }
+        item.x = Number(nx.toFixed(3));
+        item.z = Number(nz.toFixed(3));
+        const mesh = itemMeshes.get(item.id);
+        if (mesh) mesh.position.set(item.x, item.y / 100, item.z);
+
+        const res = checkPlacementCollision(item, item.x, item.z);
+        setItemCollisionVisual(item.id, !res.valid, res.reason);
+        updateSelectionUI();
+      }
+      return;
+    }
+
+    const dx = e.clientX - lastPtr.x;
+    const dy = e.clientY - lastPtr.y;
+    lastPtr = { x: e.clientX, y: e.clientY };
+
+    if (pointerMode === 'rotate') {
+      if (viewMode === '3d') {
+        orbit.yaw -= dx * 0.0065;
+        orbit.pitch = Math.max(0.18, Math.min(1.48, orbit.pitch + dy * 0.0065));
+      } else if (viewMode === 'fp') {
+        fp.yaw -= dx * 0.0055;
+        fp.pitch = Math.max(-1.1, Math.min(1.1, fp.pitch - dy * 0.005));
+      }
+      updateCameraTransform();
+    } else if (pointerMode === 'pan' && viewMode === '3d') {
+      const speed = orbit.dist * 0.0014;
+      const sinY = Math.sin(orbit.yaw), cosY = Math.cos(orbit.yaw);
+      orbit.target.x = Math.max(0, Math.min(APT_W, orbit.target.x - (cosY * dx + sinY * dy) * speed));
+      orbit.target.z = Math.max(0, Math.min(APT_D, orbit.target.z - (-sinY * dx + cosY * dy) * speed));
+      updateCameraTransform();
+    }
+  });
+
+  function endPointer(e) {
+    activeTouches.delete(e.pointerId);
+    if (isDraggingFurniture && selectedId) {
+      const item = placedItems.find(it => it.id === selectedId);
+      if (item) {
+        const res = checkPlacementCollision(item, item.x, item.z);
+        if (!res.valid) {
+          // 배치 불가능한 위치라면 원래 위치로 원복하고 사유 안내 유지
+          item.x = dragStartPos.x;
+          item.z = dragStartPos.z;
+          const mesh = itemMeshes.get(item.id);
+          if (mesh) mesh.position.set(item.x, item.y / 100, item.z);
+          setItemCollisionVisual(item.id, true, res.reason + ' (원래 위치로 복귀됨)');
+          setTimeout(() => setItemCollisionVisual(item.id, false), 2600);
+        } else {
+          setItemCollisionVisual(item.id, false);
+          saveToLocalStorage(true);
+        }
+        updatePlacedListUI();
+      }
+    }
+    isDraggingFurniture = false;
+    pointerMode = 'none';
+  }
+
+  webglCanvas.addEventListener('pointerup', endPointer);
+  webglCanvas.addEventListener('pointercancel', endPointer);
+  webglCanvas.addEventListener('contextmenu', e => e.preventDefault());
+
+  function applyZoom(factor) {
+    if (viewMode === '3d') {
+      orbit.dist = Math.max(2.5, Math.min(28, orbit.dist * factor));
+    } else if (viewMode === '2d') {
+      ortho2D.zoom = Math.max(0.65, Math.min(3.8, ortho2D.zoom / factor));
+    } else if (viewMode === 'fp') {
+      perspCamera.fov = Math.max(28, Math.min(75, perspCamera.fov * factor));
+    }
+    updateCameraTransform();
+  }
+
+  webglCanvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    applyZoom(e.deltaY > 0 ? 1.09 : 0.91);
+  }, { passive: false });
+
+  /* =========================================================
+     8. 가구 삽입 / 회전 / 미세이동 / 적층 / 삭제 로직
+     ========================================================= */
+  function selectFurniture(id) {
+    selectedId = id;
+    itemMeshes.forEach((m, key) => {
+      m.userData.edges.material.color.setHex(key === id ? 0x2563eb : 0x1e293b);
+    });
+    updateSelectionUI();
+    updatePlacedListUI();
+  }
+
+  function updateSelectionUI() {
+    const bar = document.getElementById('selected-bar');
+    const item = placedItems.find(it => it.id === selectedId);
+    if (!item) {
+      bar.classList.remove('visible');
+      return;
+    }
+    bar.classList.add('visible');
+    document.getElementById('sel-name').textContent = item.name;
+    document.getElementById('sel-dim').textContent = `${item.w}×${item.d}×${item.h}cm (Y:${item.y}cm)`;
+    document.getElementById('ed-w').value = item.w;
+    document.getElementById('ed-d').value = item.d;
+    document.getElementById('ed-h').value = item.h;
+    document.getElementById('ed-y').value = item.y;
+    document.getElementById('ed-color').value = item.color;
+  }
+
+  // 새 가구 삽입 시 해당 공간 내 빈 자리 자동 탐색 + 충돌 검사
+  function addNewFurniture() {
+    const name = document.getElementById('inp-name').value.trim() || '가구';
+    const w = Math.max(15, Number(document.getElementById('inp-w').value) || 80);
+    const d = Math.max(15, Number(document.getElementById('inp-d').value) || 60);
+    const h = Math.max(10, Number(document.getElementById('inp-h').value) || 80);
+    const y = Math.max(0, Number(document.getElementById('inp-y').value) || 0);
+    const color = document.getElementById('inp-color').value;
+    const roomKey = document.getElementById('inp-room').value;
+    const room = ROOMS[roomKey] || ROOMS.living;
+
+    const newItem = {
+      id: 'item_' + Date.now(),
+      type: selectedCatalogType,
+      name, w, d, h, y,
+      x: room.x,
+      z: room.z,
+      rot: 0,
+      color
+    };
+
+    // 방 중심 주변에서 충돌 없는 빈 좌표 탐색
+    let found = false;
+    const offsets = [0, 0.35, -0.35, 0.7, -0.7, 1.05, -1.05, 1.4, -1.4];
+    outer: for (const oz of offsets) {
+      for (const ox of offsets) {
+        const tx = Number((room.x + ox).toFixed(2));
+        const tz = Number((room.z + oz).toFixed(2));
+        if (checkPlacementCollision(newItem, tx, tz).valid) {
+          newItem.x = tx;
+          newItem.z = tz;
+          found = true;
+          break outer;
+        }
+      }
+    }
+
+    placedItems.push(newItem);
+    rebuildSingleMesh(newItem);
+    selectFurniture(newItem.id);
+
+    const check = checkPlacementCollision(newItem, newItem.x, newItem.z);
+    if (!check.valid || !found) {
+      setItemCollisionVisual(newItem.id, true, check.reason + ' — 가구를 드래그해 빈 공간으로 옮겨주세요.');
+    } else {
+      setItemCollisionVisual(newItem.id, false);
+      saveToLocalStorage(true);
+    }
+    updatePlacedListUI();
+  }
+
+  function tryTransformSelected(nextX, nextZ, nextRot, nextW, nextD, nextH, nextY) {
+    const item = placedItems.find(it => it.id === selectedId);
+    if (!item) return;
+    const res = checkPlacementCollision(item, nextX, nextZ, nextRot, nextW, nextD, nextY, nextH);
+    if (!res.valid) {
+      setItemCollisionVisual(item.id, true, res.reason);
+      setTimeout(() => setItemCollisionVisual(item.id, false), 2400);
+      return;
+    }
+    item.x = Number(nextX.toFixed(3));
+    item.z = Number(nextZ.toFixed(3));
+    item.rot = nextRot;
+    item.w = nextW;
+    item.d = nextD;
+    item.h = nextH;
+    item.y = nextY;
+    rebuildSingleMesh(item);
+    selectFurniture(item.id);
+    setItemCollisionVisual(item.id, false);
+    saveToLocalStorage(true);
+  }
+
+  function deleteFurniture(id) {
+    placedItems = placedItems.filter(it => it.id !== id);
+    const m = itemMeshes.get(id);
+    if (m) furnitureGroup.remove(m);
+    itemMeshes.delete(id);
+    if (selectedId === id) {
+      selectedId = null;
+      document.getElementById('collision-banner').classList.remove('visible');
+    }
+    updateSelectionUI();
+    updatePlacedListUI();
+    saveToLocalStorage(true);
+  }
+
+  // 세탁기 위 건조기 자동 직렬 적층
+  function stackLaundry() {
+    const washer = placedItems.find(it => it.type === 'washer' || it.name.includes('세탁기'));
+    const dryer = placedItems.find(it => it.type === 'dryer' || it.name.includes('건조기'));
+    if (!washer || !dryer) {
+      alert('세탁기와 건조기가 모두 배치되어 있어야 직렬 쌓기가 가능합니다.');
+      return;
+    }
+    const targetY = washer.y + washer.h;
+    const res = checkPlacementCollision(dryer, washer.x, washer.z, washer.rot, dryer.w, dryer.d, targetY, dryer.h);
+    if (!res.valid) {
+      setItemCollisionVisual(dryer.id, true, res.reason);
+      return;
+    }
+    dryer.x = washer.x;
+    dryer.z = washer.z;
+    dryer.rot = washer.rot;
+    dryer.y = targetY;
+    rebuildSingleMesh(dryer);
+    selectFurniture(dryer.id);
+    setItemCollisionVisual(dryer.id, false);
+    saveToLocalStorage(true);
+  }
+
+  /* =========================================================
+     9. UI 바인딩 (카탈로그, 배치 목록, 조이스틱, 미니맵, 라벨 오버레이)
+     ========================================================= */
+  let selectedCatalogType = 'fridge';
+  const catGrid = document.getElementById('catalog-grid');
+  CATALOG.forEach((c, idx) => {
+    const el = document.createElement('div');
+    el.className = 'cat-item' + (idx === 0 ? ' selected' : '');
+    el.innerHTML = `<span class="cat-icon">${c.icon}</span><span class="cat-name">${c.name}</span>`;
+    el.addEventListener('click', () => {
+      document.querySelectorAll('.cat-item').forEach(x => x.classList.remove('selected'));
+      el.classList.add('selected');
+      selectedCatalogType = c.type;
+      document.getElementById('inp-name').value = c.name;
+      document.getElementById('inp-w').value = c.w;
+      document.getElementById('inp-d').value = c.d;
+      document.getElementById('inp-h').value = c.h;
+      document.getElementById('inp-y').value = c.y;
+      document.getElementById('inp-color').value = c.color;
+      document.getElementById('inp-room').value = c.defaultRoom;
+    });
+    catGrid.appendChild(el);
+  });
+
+  function updatePlacedListUI() {
+    document.getElementById('placed-count').textContent = placedItems.length;
+    const list = document.getElementById('placed-list');
+    list.innerHTML = '';
+    if (placedItems.length === 0) {
+      list.innerHTML = '<div style="text-align:center;color:#64748b;padding:20px;font-size:12px;">배치된 가구가 없습니다. [가구 삽입] 탭에서 추가하세요.</div>';
+      return;
+    }
+    placedItems.forEach(item => {
+      const row = document.createElement('div');
+      row.className = 'placed-row' + (item.id === selectedId ? ' selected' : '');
+      row.innerHTML = `
+        <div class="placed-info">
+          <div class="placed-title">${item.name}</div>
+          <div class="placed-sub">${item.w}×${item.d}×${item.h}cm · 높이Y ${item.y}cm · 회전 ${item.rot}°</div>
+        </div>
+        <button type="button" class="btn-danger" style="width:auto;padding:6px 10px;">삭제</button>
+      `;
+      row.querySelector('.placed-info').addEventListener('click', () => selectFurniture(item.id));
+      row.querySelector('button').addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteFurniture(item.id);
+      });
+      list.appendChild(row);
+    });
+  }
+
+  // 상단 버튼 이벤트
+  document.getElementById('btn-mode-fp').addEventListener('click', () => setViewMode('fp'));
+  document.getElementById('btn-mode-3d').addEventListener('click', () => setViewMode('3d'));
+  document.getElementById('btn-mode-2d').addEventListener('click', () => setViewMode('2d'));
+  document.getElementById('btn-stack-laundry').addEventListener('click', stackLaundry);
+
+  const panel = document.getElementById('furniture-panel');
+  const btnPlaceMode = document.getElementById('btn-place-mode');
+  btnPlaceMode.addEventListener('click', () => {
+    placeMode = !placeMode;
+    btnPlaceMode.classList.toggle('active', placeMode);
+    panel.classList.toggle('open', placeMode);
+    if (!placeMode) selectFurniture(null);
+  });
+  document.getElementById('btn-close-panel').addEventListener('click', () => {
+    placeMode = false;
+    btnPlaceMode.classList.remove('active');
+    panel.classList.remove('open');
+  });
+
+  // 패널 탭 전환
+  ['add', 'list', 'data'].forEach(t => {
+    document.getElementById('tab-' + t).addEventListener('click', () => {
+      ['add', 'list', 'data'].forEach(k => {
+        document.getElementById('tab-' + k).classList.toggle('active', k === t);
+        document.getElementById('body-' + k).style.display = (k === t) ? 'block' : 'none';
+      });
+    });
+  });
+
+  document.getElementById('btn-add-furniture').addEventListener('click', addNewFurniture);
+
+  // 선택 가구 컨트롤 바
+  document.getElementById('btn-deselect').addEventListener('click', () => selectFurniture(null));
+  document.getElementById('btn-del').addEventListener('click', () => { if (selectedId) deleteFurniture(selectedId); });
+  document.getElementById('btn-rot-90').addEventListener('click', () => {
+    const it = placedItems.find(x => x.id === selectedId);
+    if (it) tryTransformSelected(it.x, it.z, (it.rot + 90) % 360, it.w, it.d, it.h, it.y);
+  });
+  document.getElementById('btn-rot-15').addEventListener('click', () => {
+    const it = placedItems.find(x => x.id === selectedId);
+    if (it) tryTransformSelected(it.x, it.z, (it.rot + 15) % 360, it.w, it.d, it.h, it.y);
+  });
+  const nudge = (dx, dz) => {
+    const it = placedItems.find(x => x.id === selectedId);
+    const step = snapStep > 0 ? snapStep : 0.05;
+    if (it) tryTransformSelected(it.x + dx * step, it.z + dz * step, it.rot, it.w, it.d, it.h, it.y);
+  };
+  document.getElementById('btn-nudge-l').addEventListener('click', () => nudge(-1, 0));
+  document.getElementById('btn-nudge-r').addEventListener('click', () => nudge(1, 0));
+  document.getElementById('btn-nudge-u').addEventListener('click', () => nudge(0, -1));
+  document.getElementById('btn-nudge-d').addEventListener('click', () => nudge(0, 1));
+
+  document.getElementById('btn-edit-size').addEventListener('click', () => {
+    document.getElementById('sel-edit-row').classList.toggle('open');
+  });
+  ['ed-w', 'ed-d', 'ed-h', 'ed-y', 'ed-color'].forEach(id => {
+    document.getElementById(id).addEventListener('change', () => {
+      const it = placedItems.find(x => x.id === selectedId);
+      if (!it) return;
+      it.color = document.getElementById('ed-color').value;
+      tryTransformSelected(
+        it.x, it.z, it.rot,
+        Math.max(15, Number(document.getElementById('ed-w').value) || it.w),
+        Math.max(15, Number(document.getElementById('ed-d').value) || it.d),
+        Math.max(10, Number(document.getElementById('ed-h').value) || it.h),
+        Math.max(0, Number(document.getElementById('ed-y').value) || 0)
+      );
+    });
+  });
+
+  // 우측 컨트롤
+  document.getElementById('btn-zoom-in').addEventListener('click', () => applyZoom(0.85));
+  document.getElementById('btn-zoom-out').addEventListener('click', () => applyZoom(1.18));
+  document.getElementById('btn-reset-view').addEventListener('click', () => {
+    orbit.target.set(CENTER_X, 0.5, CENTER_Z);
+    orbit.yaw = 0.0; orbit.pitch = 0.92; orbit.dist = 13.5;
+    ortho2D.zoom = 1.0;
+    fp.x = ROOMS.living.x; fp.z = ROOMS.living.z; fp.yaw = 0; fp.pitch = 0;
+    updateCameraTransform();
+  });
+  document.getElementById('btn-toggle-labels').addEventListener('click', (e) => {
+    showLabels = !showLabels;
+    e.currentTarget.classList.toggle('active', showLabels);
+  });
+  document.getElementById('btn-toggle-doors').addEventListener('click', (e) => {
+    doorsOpened = !doorsOpened;
+    e.currentTarget.textContent = doorsOpened ? '문열림' : '문닫힘';
+    doorMeshes.forEach(d => {
+      d.pivot.rotation.y = doorsOpened ? d.openAngleRad : d.closeAngleRad;
+    });
+  });
+
+  // 1인칭 방 칩 & 미니맵 클릭 순간이동
+  document.querySelectorAll('.room-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const r = ROOMS[btn.dataset.room];
+      if (!r) return;
+      fp.x = r.x; fp.z = r.z; fp.yaw = r.yaw; fp.pitch = 0;
+      updateRoomHighlight();
+      updateCameraTransform();
+    });
+  });
+
+  document.getElementById('btn-minimap-collapse').addEventListener('click', (e) => {
+    const box = document.getElementById('minimap-box');
+    const collapsed = box.classList.toggle('collapsed');
+    e.currentTarget.textContent = collapsed ? '펼치기' : '접기';
+  });
+
+  miniCanvas.addEventListener('click', (e) => {
+    const rect = miniCanvas.getBoundingClientRect();
+    const nx = ((e.clientX - rect.left) / rect.width) * APT_W;
+    const nz = ((e.clientY - rect.top) / rect.height) * APT_D;
+    if (canWalkTo(nx, nz)) {
+      fp.x = nx; fp.z = nz;
+      updateRoomHighlight();
+      updateCameraTransform();
+    }
+  });
+
+  // 가상 조이스틱 & 키보드 이동
+  const joyZone = document.getElementById('joystick-zone');
+  const joyKnob = document.getElementById('joystick-knob');
+  let joyVec = { x: 0, y: 0 };
+  let joyActive = false;
+
+  joyZone.addEventListener('pointerdown', (e) => {
+    joyActive = true;
+    joyZone.setPointerCapture(e.pointerId);
+    updateJoy(e.clientX, e.clientY);
+  });
+  joyZone.addEventListener('pointermove', (e) => {
+    if (joyActive) updateJoy(e.clientX, e.clientY);
+  });
+  joyZone.addEventListener('pointerup', () => {
+    joyActive = false; joyVec = { x: 0, y: 0 };
+    joyKnob.style.transform = 'translate(0px, 0px)';
+  });
+
+  function updateJoy(cx, cy) {
+    const rect = joyZone.getBoundingClientRect();
+    const ox = cx - (rect.left + rect.width / 2);
+    const oy = cy - (rect.top + rect.height / 2);
+    const maxR = rect.width * 0.36;
+    const dist = Math.min(maxR, Math.hypot(ox, oy));
+    const ang = Math.atan2(oy, ox);
+    const kx = Math.cos(ang) * dist;
+    const ky = Math.sin(ang) * dist;
+    joyKnob.style.transform = `translate(${kx}px, ${ky}px)`;
+    joyVec = { x: kx / maxR, y: ky / maxR };
+  }
+
+  const keys = {};
+  window.addEventListener('keydown', e => { keys[e.code] = true; });
+  window.addEventListener('keyup', e => { keys[e.code] = false; });
+
+  // 저장/초기화 기능
+  const STORAGE_KEY = 'suwon_74a_furniture_v1';
+  function saveToLocalStorage(silent = false) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(placedItems));
+    if (!silent) alert('현재 가구 배치가 저장되었습니다.');
+  }
+  document.getElementById('btn-save-local').addEventListener('click', () => saveToLocalStorage(false));
+  document.getElementById('btn-reset-default').addEventListener('click', () => {
+    placedItems = JSON.parse(JSON.stringify(DEFAULT_SAMPLE));
+    selectFurniture(null);
+    rebuildAllFurniture();
+    saveToLocalStorage(true);
+  });
+  document.getElementById('btn-clear-all').addEventListener('click', () => {
+    placedItems = [];
+    selectFurniture(null);
+    rebuildAllFurniture();
+    saveToLocalStorage(true);
+  });
+  document.getElementById('btn-export-json').addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify(placedItems, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'suwon-74a-layout.json';
+    a.click();
+  });
+  document.getElementById('sel-snap').addEventListener('change', (e) => {
+    snapStep = Number(e.target.value);
+  });
+
+  /* =========================================================
+     10. 2D 라벨/치수 오버레이 & 미니맵 렌더링 루프
+     ========================================================= */
+  function drawOverlayLabels() {
+    const w = overlayCanvas.width = window.innerWidth * (window.devicePixelRatio || 1);
+    const h = overlayCanvas.height = window.innerHeight * (window.devicePixelRatio || 1);
+    const dpr = window.devicePixelRatio || 1;
+    overlayCtx.clearRect(0, 0, w, h);
+    if (!showLabels || viewMode === 'fp') return;
+
+    overlayCtx.save();
+    overlayCtx.scale(dpr, dpr);
+    overlayCtx.textAlign = 'center';
+    overlayCtx.textBaseline = 'middle';
+
+    // 방 이름 표시
+    for (const r of Object.values(ROOMS)) {
+      const p = new THREE.Vector3(r.x, 0.1, r.z).project(activeCamera);
+      if (p.z > 1) continue;
+      const sx = (p.x * 0.5 + 0.5) * window.innerWidth;
+      const sy = (-p.y * 0.5 + 0.5) * window.innerHeight;
+      overlayCtx.font = '700 12px sans-serif';
+      overlayCtx.fillStyle = 'rgba(15, 23, 42, 0.72)';
+      overlayCtx.fillRect(sx - 34, sy - 11, 68, 22);
+      overlayCtx.fillStyle = '#fff';
+      overlayCtx.fillText(r.name, sx, sy);
+    }
+
+    // 가구 이름 + 치수 표시
+    for (const it of placedItems) {
+      const p = new THREE.Vector3(it.x, (it.y + it.h) / 100 + 0.12, it.z).project(activeCamera);
+      if (p.z > 1) continue;
+      const sx = (p.x * 0.5 + 0.5) * window.innerWidth;
+      const sy = (-p.y * 0.5 + 0.5) * window.innerHeight;
+      const txt = `${it.name} (${it.w}×${it.d})`;
+      overlayCtx.font = '700 11px sans-serif';
+      const tw = overlayCtx.measureText(txt).width + 12;
+      overlayCtx.fillStyle = it.id === selectedId ? 'rgba(37, 99, 235, 0.92)' : 'rgba(255, 255, 255, 0.88)';
+      overlayCtx.fillRect(sx - tw / 2, sy - 10, tw, 20);
+      overlayCtx.fillStyle = it.id === selectedId ? '#fff' : '#0f172a';
+      overlayCtx.fillText(txt, sx, sy);
+    }
+    overlayCtx.restore();
+  }
+
+  function drawMinimap() {
+    if (viewMode !== 'fp') return;
+    const cw = miniCanvas.width, ch = miniCanvas.height;
+    miniCtx.clearRect(0, 0, cw, ch);
+    const sx = cw / APT_W, sz = ch / APT_D;
+
+    miniCtx.fillStyle = '#e2e8f0';
+    miniCtx.fillRect(0, 0, cw, ch);
+
+    // 벽체 그리기
+    miniCtx.fillStyle = '#334155';
+    for (const w of wallColliders) {
+      miniCtx.fillRect(w.minX * sx, w.minZ * sz, (w.maxX - w.minX) * sx, (w.maxZ - w.minZ) * sz);
+    }
+    // 문 반경 그리기
+    miniCtx.fillStyle = 'rgba(59, 130, 246, 0.25)';
+    for (const d of doorSwingZones) {
+      miniCtx.fillRect(d.minX * sx, d.minZ * sz, (d.maxX - d.minX) * sx, (d.maxZ - d.minZ) * sz);
+    }
+    // 가구 그리기
+    for (const it of placedItems) {
+      const b = getItemAABB(it);
+      miniCtx.fillStyle = it.color;
+      miniCtx.fillRect(b.minX * sx, b.minZ * sz, (b.maxX - b.minX) * sx, (b.maxZ - b.minZ) * sz);
+    }
+    // 현재 1인칭 시점 위치 및 시야각 콘
+    const px = fp.x * sx, pz = fp.z * sz;
+    miniCtx.beginPath();
+    miniCtx.moveTo(px, pz);
+    miniCtx.arc(px, pz, 24, -fp.yaw - Math.PI / 2 - 0.45, -fp.yaw - Math.PI / 2 + 0.45);
+    miniCtx.closePath();
+    miniCtx.fillStyle = 'rgba(37, 99, 235, 0.32)';
+    miniCtx.fill();
+
+    miniCtx.beginPath();
+    miniCtx.arc(px, pz, 6, 0, Math.PI * 2);
+    miniCtx.fillStyle = '#ef4444';
+    miniCtx.fill();
+  }
+
+  function resize() {
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    updateCameraTransform();
+  }
+  window.addEventListener('resize', resize);
+
+  // 초기 실행
+  buildApartment();
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    placedItems = saved ? JSON.parse(saved) : JSON.parse(JSON.stringify(DEFAULT_SAMPLE));
+  } catch (e) {
+    placedItems = JSON.parse(JSON.stringify(DEFAULT_SAMPLE));
+  }
+  rebuildAllFurniture();
+  setViewMode('3d');
+  resize();
+
+  let lastTime = performance.now();
+  function animate(now) {
+    requestAnimationFrame(animate);
+    const dt = Math.min(0.05, (now - lastTime) / 1000);
+    lastTime = now;
+
+    if (viewMode === 'fp') {
+      let fwd = -joyVec.y;
+      let rgt = joyVec.x;
+      if (keys['KeyW'] || keys['ArrowUp']) fwd += 1;
+      if (keys['KeyS'] || keys['ArrowDown']) fwd -= 1;
+      if (keys['KeyD'] || keys['ArrowRight']) rgt += 1;
+      if (keys['KeyA'] || keys['ArrowLeft']) rgt -= 1;
+      if (Math.abs(fwd) > 0.01 || Math.abs(rgt) > 0.01) {
+        moveFirstPerson(fwd * 2.6 * dt, rgt * 2.2 * dt);
+        updateCameraTransform();
+      }
+      drawMinimap();
+    }
+
+    renderer.render(scene, activeCamera);
+    drawOverlayLabels();
+  }
+  requestAnimationFrame(animate);
+})();
+</script>
+</body>
+</html>
